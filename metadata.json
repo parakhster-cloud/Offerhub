@@ -1,0 +1,6 @@
+{
+  "name": "OfferScout",
+  "description": "Smart global and city-specific offers aggregator with credit card perks, travel deals, supermarket coupons, AI search & buy pattern reminders, and deal tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
