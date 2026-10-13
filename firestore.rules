@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.userId is string &&
+             data.userId.size() > 0 &&
+             data.userId == request.auth.uid &&
+             data.email is string &&
+             data.email.size() > 0 &&
+             (!('displayName' in data) || data.displayName is string) &&
+             (!('currency' in data) || data.currency is string) &&
+             (!('country' in data) || data.country is string) &&
+             (!('city' in data) || data.city is string) &&
+             (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
+             (!('savedCards' in data) || data.savedCards is list);
+    }
+
+    function isValidSavedDeal(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.dealId is string &&
+             data.dealId.size() > 0 &&
+             data.merchant is string &&
+             data.merchant.size() > 0 &&
+             data.title is string &&
+             data.title.size() > 0 &&
+             (!('discountHighlight' in data) || data.discountHighlight is string) &&
+             (!('category' in data) || data.category is string) &&
+             (!('city' in data) || data.city is string) &&
+             (!('country' in data) || data.country is string) &&
+             (!('linkUrl' in data) || data.linkUrl is string) &&
+             (!('promoCode' in data) || data.promoCode is string) &&
+             (!('expiryDate' in data) || data.expiryDate is string);
+    }
+
+    function isValidDealReminder(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.reminderId is string &&
+             data.reminderId.size() > 0 &&
+             data.dealId is string &&
+             data.dealId.size() > 0 &&
+             data.merchant is string &&
+             data.merchant.size() > 0 &&
+             (!('dealTitle' in data) || data.dealTitle is string) &&
+             (!('notifyBeforeDays' in data) || data.notifyBeforeDays is number) &&
+             (!('expiryDate' in data) || data.expiryDate is string) &&
+             (!('isDismissed' in data) || data.isDismissed is bool);
+    }
+
+    // User Profile Document
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isOwner(userId);
+
+      // User Saved Deals / Wishlist Subcollection
+      match /saved_deals/{dealId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidSavedDeal(request.resource.data, userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // User Reminders Subcollection
+      match /reminders/{reminderId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDealReminder(request.resource.data, userId);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Explicit fallback reject
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with sync preferences, location, and registered card perks.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Authenticated user UID" },
+        "email": { "type": "string", "description": "Google user email address" },
+        "displayName": { "type": "string", "description": "User full or display name" },
+        "currency": { "type": "string", "description": "Preferred regional currency symbol/code" },
+        "country": { "type": "string", "description": "Selected country" },
+        "city": { "type": "string", "description": "Selected city" },
+        "notificationsEnabled": { "type": "boolean", "description": "Push notification toggle" },
+        "savedCards": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "User credit or debit card program identifiers"
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Profile creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Profile update timestamp" }
+      },
+      "required": ["userId", "email"]
+    },
+    "SavedDeal": {
+      "title": "SavedDeal",
+      "description": "User bookmarked or wishlisted offer with cross-device sync.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "dealId": { "type": "string", "description": "Unique offer ID" },
+        "merchant": { "type": "string", "description": "Merchant name" },
+        "title": { "type": "string", "description": "Deal headline" },
+        "discountHighlight": { "type": "string", "description": "Discount badge text" },
+        "category": { "type": "string", "description": "Deal category" },
+        "city": { "type": "string", "description": "Target city" },
+        "country": { "type": "string", "description": "Target country" },
+        "linkUrl": { "type": "string", "description": "Redemption or flyer URL" },
+        "promoCode": { "type": "string", "description": "Promo code" },
+        "expiryDate": { "type": "string", "description": "Expiry date string" },
+        "savedAt": { "type": "string", "format": "date-time", "description": "Save timestamp" }
+      },
+      "required": ["userId", "dealId", "merchant", "title"]
+    },
+    "DealReminder": {
+      "title": "DealReminder",
+      "description": "Deal expiry notification alert set by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "reminderId": { "type": "string", "description": "Reminder identifier" },
+        "dealId": { "type": "string", "description": "Referenced offer ID" },
+        "dealTitle": { "type": "string", "description": "Offer title" },
+        "merchant": { "type": "string", "description": "Merchant name" },
+        "notifyBeforeDays": { "type": "number", "description": "Days before expiry to alert" },
+        "expiryDate": { "type": "string", "description": "Deal expiry date string" },
+        "isDismissed": { "type": "boolean", "description": "Dismiss status" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["userId", "reminderId", "dealId", "merchant"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User account documents containing user profile and preferences"
+    },
+    "/users/{userId}/saved_deals/{dealId}": {
+      "schema": { "$ref": "#/entities/SavedDeal" },
+      "description": "Cross-device synchronized saved deals and wishlist items"
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/DealReminder" },
+      "description": "User scheduled expiry reminders and notifications"
+    }
+  }
+}

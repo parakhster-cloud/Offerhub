@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.example.data.model.AiInsight
 import com.example.data.model.DealReminder
 import com.example.data.model.DealSortOption
@@ -12,7 +13,12 @@ import com.example.data.model.PurchasePattern
 import com.example.data.model.SearchPattern
 import com.example.data.model.SupportedLocations
 import com.example.data.model.UserProfile
+import com.example.data.repository.FirebaseSyncRepository
 import com.example.data.repository.OfferRepository
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 enum class AppScreen(val title: String) {
     HOME("Explore"),
@@ -43,21 +50,16 @@ data class FilterState(
     val sortOption: DealSortOption = DealSortOption.RECOMMENDED
 )
 
-data class DealsUiState(
-    val deals: List<Offer> = emptyList(),
-    val savedDeals: List<Offer> = emptyList(),
-    val savedDealIds: Set<String> = emptySet(),
-    val dismissedDealIds: Set<String> = emptySet(),
-    val lastDismissedOffer: Offer? = null,
-    val isLoading: Boolean = false,
-    val filterState: FilterState = FilterState(),
-    val totalSavings: Double = 0.0,
-    val userMessage: String? = null
-)
-
 class OfferViewModel(application: Application) : AndroidViewModel(application) {
 
     val repository = OfferRepository(application)
+    val firebaseSyncRepo = FirebaseSyncRepository(application)
+
+    val firebaseUser: StateFlow<FirebaseUser?> = firebaseSyncRepo.currentUser.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        Firebase.auth.currentUser
+    )
 
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
     val currentScreen = _currentScreen.asStateFlow()
@@ -85,15 +87,6 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         SharingStarted.WhileSubscribed(5000),
         emptySet()
     )
-
-    val dismissedOfferIds: StateFlow<Set<String>> = repository.dismissedOfferIds.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        emptySet()
-    )
-
-    private val _lastDismissedOffer = MutableStateFlow<Offer?>(null)
-    val lastDismissedOffer: StateFlow<Offer?> = _lastDismissedOffer.asStateFlow()
 
     val reminders: StateFlow<List<DealReminder>> = repository.reminders.stateIn(
         viewModelScope,
@@ -123,17 +116,13 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
     val aiInsights: StateFlow<List<AiInsight>> = repository.aiInsights
     val isAiLoading: StateFlow<Boolean> = repository.isAiLoading
 
-    // Computed filtered list of offers (excludes dismissed offers from feed)
+    // Computed filtered list of offers
     val displayedOffers: StateFlow<List<Offer>> = combine(
         repository.allOffers,
         _filterState,
-        repository.savedOfferIds,
-        repository.dismissedOfferIds
-    ) { offers, filter, savedIds, dismissedIds ->
+        repository.savedOfferIds
+    ) { offers, filter, savedIds ->
         val filtered = offers.filter { offer ->
-            // Exclude dismissed offers from standard feed unless explicitly wishlisted
-            val notDismissed = !dismissedIds.contains(offer.id)
-
             // Country match: offer matches selected country or is nationwide/global
             val countryMatches = offer.country.equals(filter.selectedCountry, ignoreCase = true) ||
                     offer.country.equals("Global", ignoreCase = true)
@@ -180,7 +169,7 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
             // Wishlist / Saved filter
             val wishlistMatches = !filter.onlyWishlisted || savedIds.contains(offer.id)
 
-            countryMatches && cityMatches && categoryMatches && sourceMatches && queryMatches && urgencyMatches && promoMatches && wishlistMatches && notDismissed
+            countryMatches && cityMatches && categoryMatches && sourceMatches && queryMatches && urgencyMatches && promoMatches && wishlistMatches
         }
 
         // Apply deal sorting (by discount percentage, expiry date, or recommended)
@@ -220,18 +209,6 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
-    // Dismissed offers list
-    val dismissedOffers: StateFlow<List<Offer>> = combine(
-        repository.allOffers,
-        dismissedOfferIds
-    ) { offers, ids ->
-        offers.filter { ids.contains(it.id) }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        emptyList()
-    )
-
     // Total savings computation
     val totalSavings: StateFlow<Double> = purchaseHistory.combine(repository.allOffers) { purchases, _ ->
         purchases.sumOf { it.estimatedSavings }
@@ -239,31 +216,6 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         0.0
-    )
-
-    // Comprehensive StateFlow exposing deal data, bookmarks, dismissals, and filter status to UI
-    val dealsUiState: StateFlow<DealsUiState> = combine(
-        displayedOffers,
-        savedOffers,
-        savedOfferIds,
-        dismissedOfferIds,
-        _lastDismissedOffer
-    ) { displayed, saved, savedIds, dismissedIds, lastDismissed ->
-        DealsUiState(
-            deals = displayed,
-            savedDeals = saved,
-            savedDealIds = savedIds,
-            dismissedDealIds = dismissedIds,
-            lastDismissedOffer = lastDismissed,
-            isLoading = false,
-            filterState = _filterState.value,
-            totalSavings = totalSavings.value,
-            userMessage = _userMessage.value
-        )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        DealsUiState()
     )
 
     fun navigateTo(screen: AppScreen) {
@@ -387,68 +339,11 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         _userMessage.value = if (nextVal) "Filter active: Wishlist & Saved Deals only" else "Showing All Deals"
     }
 
-    // Save or bookmark an offer to Room database
-    fun saveOffer(offer: Offer) {
-        viewModelScope.launch {
-            repository.toggleSaveOffer(offer, isCurrentlySaved = false)
-            _userMessage.value = "Saved '${offer.merchant}' to Wishlist!"
-        }
-    }
-
-    // Unsave or remove offer from Room database
-    fun unsaveOffer(offer: Offer) {
-        viewModelScope.launch {
-            repository.toggleSaveOffer(offer, isCurrentlySaved = true)
-            _userMessage.value = "Removed '${offer.merchant}' from Wishlist"
-        }
-    }
-
-    // Toggle saved state
     fun toggleSaveOffer(offer: Offer) {
         viewModelScope.launch {
             val isSaved = savedOfferIds.value.contains(offer.id)
             repository.toggleSaveOffer(offer, isSaved)
             _userMessage.value = if (isSaved) "Removed from Wishlist" else "Saved to Wishlist (Local Database)!"
-        }
-    }
-
-    // Dismiss an offer from view
-    fun dismissOffer(offer: Offer) {
-        viewModelScope.launch {
-            _lastDismissedOffer.value = offer
-            repository.dismissOffer(offer.id)
-            _userMessage.value = "Dismissed '${offer.merchant}' offer • Tap Undo to restore"
-        }
-    }
-
-    // Undo last dismissed offer
-    fun undoDismiss() {
-        val offerToRestore = _lastDismissedOffer.value ?: return
-        viewModelScope.launch {
-            repository.undoDismissOffer(offerToRestore.id)
-            _lastDismissedOffer.value = null
-            _userMessage.value = "Restored '${offerToRestore.merchant}' offer"
-        }
-    }
-
-    // Undo dismissing a specific offer
-    fun undoDismissOffer(offer: Offer) {
-        viewModelScope.launch {
-            repository.undoDismissOffer(offer.id)
-            if (_lastDismissedOffer.value?.id == offer.id) {
-                _lastDismissedOffer.value = null
-            }
-            _userMessage.value = "Restored '${offer.merchant}' offer"
-        }
-    }
-
-    // Restore all dismissed offers
-    fun resetDismissedOffers() {
-        viewModelScope.launch {
-            val count = dismissedOfferIds.value.size
-            repository.clearAllDismissedOffers()
-            _lastDismissedOffer.value = null
-            _userMessage.value = if (count > 0) "Restored $count dismissed offer(s)" else "No dismissed offers to restore"
         }
     }
 
@@ -524,6 +419,41 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateUserProfile(profile: UserProfile) {
         repository.updateUserProfile(profile)
-        _userMessage.value = "Profile preferences saved."
+        viewModelScope.launch {
+            firebaseSyncRepo.saveUserProfile(profile)
+        }
+        _userMessage.value = "Profile preferences saved & synced."
+    }
+
+    fun signInWithGoogleIdToken(idToken: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val authResult = Firebase.auth.signInWithCredential(credential).await()
+                val user = authResult.user
+                if (user != null) {
+                    val updated = userProfile.value.copy(
+                        name = user.displayName ?: "Google User",
+                        email = user.email ?: "",
+                        isLoggedIn = true
+                    )
+                    repository.updateUserProfile(updated)
+                    firebaseSyncRepo.saveUserProfile(updated)
+                    _userMessage.value = "Welcome, ${user.displayName ?: user.email}! Cloud Sync Active."
+                    onResult(true, null)
+                } else {
+                    onResult(false, "No user returned from Google credential")
+                }
+            } catch (e: Exception) {
+                Log.e("Auth", "Google sign in error: ${e.message}", e)
+                onResult(false, e.localizedMessage ?: "Sign-in failed")
+            }
+        }
+    }
+
+    fun signOutGoogle() {
+        firebaseSyncRepo.signOut()
+        repository.updateUserProfile(userProfile.value.copy(isLoggedIn = false))
+        _userMessage.value = "Signed out of Google account."
     }
 }
