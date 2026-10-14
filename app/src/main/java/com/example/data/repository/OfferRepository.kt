@@ -2,7 +2,9 @@ package com.example.data.repository
 
 import android.content.Context
 import com.example.data.local.AppDatabase
+import com.example.data.local.CategorizedDealEntity
 import com.example.data.local.Deal
+import com.example.data.local.DealType
 import com.example.data.local.PurchaseRecordEntity
 import com.example.data.local.ReminderEntity
 import com.example.data.local.SavedOfferEntity
@@ -33,6 +35,7 @@ class OfferRepository(private val context: Context) {
 
     private val database = AppDatabase.getDatabase(context)
     private val dealDao = database.dealDao()
+    private val categorizedDealDao = database.categorizedDealDao()
     private val dao = database.offerDao()
     private val geminiClient = GeminiApiClient()
     val notificationHelper = DealNotificationHelper(context)
@@ -45,6 +48,27 @@ class OfferRepository(private val context: Context) {
             cachedDeals.map { it.toOffer() }
         }
     }
+
+    // Categorized deals streams by type ('Travel', 'Credit Card', 'Local')
+    val travelDeals: Flow<List<Offer>> = categorizedDealDao.getTravelDeals().map { list ->
+        list.map { it.toOffer() }
+    }
+
+    val creditCardDeals: Flow<List<Offer>> = categorizedDealDao.getCreditCardDeals().map { list ->
+        list.map { it.toOffer() }
+    }
+
+    val localDeals: Flow<List<Offer>> = categorizedDealDao.getLocalDeals().map { list ->
+        list.map { it.toOffer() }
+    }
+
+    fun getDealsByType(dealType: String): Flow<List<Offer>> {
+        return categorizedDealDao.getDealsByType(dealType).map { list ->
+            list.map { it.toOffer() }
+        }
+    }
+
+    fun countDealsByType(dealType: String): Flow<Int> = categorizedDealDao.countDealsByType(dealType)
 
     private val _userProfile = MutableStateFlow(UserProfile())
     val userProfile = _userProfile.asStateFlow()
@@ -66,6 +90,10 @@ class OfferRepository(private val context: Context) {
         // Populate and update local cache of Deal entities with all worldwide and Saudi Arabia seed deals
         val initialDealEntities = OfferSeedData.INITIAL_OFFERS.map { it.toDealEntity() }
         dealDao.insertDeals(initialDealEntities)
+
+        // Populate categorized deals partitioned into 'Travel', 'Credit Card', and 'Local'
+        val initialCategorized = OfferSeedData.INITIAL_OFFERS.map { CategorizedDealEntity.fromOffer(it) }
+        categorizedDealDao.insertDeals(initialCategorized)
 
         // Seed search history and purchase logs if empty
         val existingSearches = dao.getSearchHistory().first()

@@ -8,17 +8,19 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         Deal::class,
+        CategorizedDealEntity::class,
         SavedOfferEntity::class,
         DismissedOfferEntity::class,
         SearchLogEntity::class,
         PurchaseRecordEntity::class,
         ReminderEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dealDao(): DealDao
+    abstract fun categorizedDealDao(): CategorizedDealDao
     abstract fun offerDao(): OfferDao
 
     companion object {

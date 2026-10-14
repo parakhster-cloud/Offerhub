@@ -514,6 +514,42 @@ fun HomeScreen(
                 .testTag("search_text_input")
         )
 
+        // Organizational Deal Types: Travel, Credit Card, Local (Room Database Partition)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            listOf(
+                "All" to "🌟 All Deals",
+                "Travel" to "✈️ Travel",
+                "Credit Card" to "💳 Credit Card",
+                "Local" to "📍 Local"
+            ).forEach { (typeKey, label) ->
+                val isSelected = filterState.selectedDealType == typeKey
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { viewModel.updateDealType(typeKey) },
+                    label = {
+                        Text(
+                            text = label,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.tertiary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onTertiary
+                    ),
+                    modifier = Modifier.testTag("deal_type_${typeKey.replace(" ", "_")}")
+                )
+            }
+        }
+
         // Sources Filter Chips (All, Amazon, ClickFlyers, Banks, Supermarkets)
         Row(
             modifier = Modifier

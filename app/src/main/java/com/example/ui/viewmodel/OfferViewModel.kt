@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import android.util.Log
+import com.example.data.local.DealType
 import com.example.data.model.AiInsight
 import com.example.data.model.DealReminder
 import com.example.data.model.DealSortOption
@@ -42,6 +43,7 @@ data class FilterState(
     val selectedCountry: String = SupportedLocations.DEFAULT_COUNTRY,
     val selectedCity: String = SupportedLocations.DEFAULT_CITY,
     val selectedCategory: OfferCategory = OfferCategory.ALL,
+    val selectedDealType: String = "All", // 'All', 'Travel', 'Credit Card', 'Local'
     val selectedSource: String = "All Sources",
     val searchQuery: String = "",
     val onlyExpiringSoon: Boolean = false,
@@ -59,6 +61,25 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         Firebase.auth.currentUser
+    )
+
+    // Categorized deals directly backed by Room CategorizedDealDao
+    val travelDeals: StateFlow<List<Offer>> = repository.travelDeals.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
+    )
+
+    val creditCardDeals: StateFlow<List<Offer>> = repository.creditCardDeals.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
+    )
+
+    val localDeals: StateFlow<List<Offer>> = repository.localDeals.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
     )
 
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
@@ -160,6 +181,13 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
                         offer.tags.any { it.lowercase().contains(query) }
             }
 
+            // Deal Type filter ('Travel', 'Credit Card', 'Local')
+            val dealTypeMatches = if (filter.selectedDealType == "All") {
+                true
+            } else {
+                DealType.classify(offer).equals(filter.selectedDealType, ignoreCase = true)
+            }
+
             // Urgency filter
             val urgencyMatches = !filter.onlyExpiringSoon || offer.isExpiringSoon
 
@@ -169,7 +197,7 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
             // Wishlist / Saved filter
             val wishlistMatches = !filter.onlyWishlisted || savedIds.contains(offer.id)
 
-            countryMatches && cityMatches && categoryMatches && sourceMatches && queryMatches && urgencyMatches && promoMatches && wishlistMatches
+            countryMatches && cityMatches && categoryMatches && dealTypeMatches && sourceMatches && queryMatches && urgencyMatches && promoMatches && wishlistMatches
         }
 
         // Apply deal sorting (by discount percentage, expiry date, or recommended)
@@ -270,6 +298,11 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.syncAggregatedDealsFromSources(_filterState.value.selectedCountry, city)
         }
+    }
+
+    fun updateDealType(dealType: String) {
+        _filterState.value = _filterState.value.copy(selectedDealType = dealType)
+        _userMessage.value = if (dealType == "All") "Showing All Deal Types" else "Organized by $dealType Deals (Room DB)"
     }
 
     fun updateCategory(category: OfferCategory) {
