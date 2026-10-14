@@ -79,6 +79,7 @@ import com.example.ui.screens.WishlistScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.AppScreen
 import com.example.ui.viewmodel.OfferViewModel
+import com.example.worker.DailyDealSyncWorker
 
 class MainActivity : ComponentActivity() {
 
@@ -87,6 +88,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Schedule battery-efficient daily background web scraping & notification digest
+        DailyDealSyncWorker.scheduleDaily(applicationContext)
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(false) } // Default bright, vibrant, appealing catchy theme

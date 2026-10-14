@@ -16,6 +16,7 @@ import com.example.data.model.SupportedLocations
 import com.example.data.model.UserProfile
 import com.example.data.repository.FirebaseSyncRepository
 import com.example.data.repository.OfferRepository
+import com.example.worker.DailyDealSyncWorker
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -421,6 +422,13 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
                 discountHighlight = offer.discountHighlight
             )
             _userMessage.value = if (sent) "Push notification dispatched to device bar!" else "Please grant notification permission."
+        }
+    }
+
+    fun triggerDailyDealScan() {
+        viewModelScope.launch {
+            DailyDealSyncWorker.triggerImmediate(getApplication())
+            _userMessage.value = "Automated daily deal scraping triggered! Push digest will appear shortly."
         }
     }
 
