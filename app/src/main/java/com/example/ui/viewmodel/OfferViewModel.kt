@@ -413,6 +413,10 @@ class OfferViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun undoDismiss() {
+        _userMessage.value = "Action restored."
+    }
+
     fun clearUserMessage() {
         _userMessage.value = null
     }

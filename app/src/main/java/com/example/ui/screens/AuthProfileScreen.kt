@@ -47,7 +47,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import android.util.Log
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +58,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.R
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Bookmark
@@ -79,8 +89,47 @@ fun AuthProfileScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
     val profile by viewModel.userProfile.collectAsState()
-    var showLoginDialog by remember { mutableStateOf(false) }
+    var isSigningIn by remember { mutableStateOf(false) }
+
+    fun launchGoogleSignIn() {
+        isSigningIn = true
+        coroutineScope.launch {
+            try {
+                val serverClientId = context.getString(R.string.default_web_client_id)
+                val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = serverClientId)
+                    .build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(signInOption)
+                    .build()
+
+                val result = credentialManager.getCredential(context = context, request = request)
+                val credential = result.credential
+                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    viewModel.signInWithGoogleIdToken(googleIdTokenCredential.idToken) { success, err ->
+                        isSigningIn = false
+                        if (success) {
+                            Toast.makeText(context, "Welcome! Signed in with Google.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, err ?: "Google sign in failed", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    isSigningIn = false
+                }
+            } catch (e: GetCredentialCancellationException) {
+                isSigningIn = false
+                Log.w("Auth", "Google Sign-In cancelled or dismissed: ${e.message}", e)
+            } catch (e: Exception) {
+                isSigningIn = false
+                Log.e("Auth", "Sign in failed: ${e.message}", e)
+                Toast.makeText(context, "Sign-in error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -178,26 +227,42 @@ fun AuthProfileScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { showLoginDialog = true },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
+                        if (profile.isLoggedIn) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text("Switch / Log In")
-                            }
+                                OutlinedButton(
+                                    onClick = { launchGoogleSignIn() },
+                                    modifier = Modifier.weight(1f).testTag("google_switch_account_btn"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("Switch Account")
+                                }
 
+                                Button(
+                                    onClick = {
+                                        viewModel.updateUserProfile(profile)
+                                        Toast.makeText(context, "Cloud sync complete!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f).testTag("sync_cloud_now_btn"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.CloudDone, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Sync Now")
+                                }
+                            }
+                        } else {
                             Button(
-                                onClick = {
-                                    Toast.makeText(context, "Cross-Platform sync completed!", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
+                                onClick = { launchGoogleSignIn() },
+                                modifier = Modifier.fillMaxWidth().testTag("google_sign_in_btn"),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = !isSigningIn
                             ) {
-                                Text("Sync Now")
+                                Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(if (isSigningIn) "Signing in..." else "Sign in with Google")
                             }
                         }
                     }
@@ -666,98 +731,4 @@ fun AuthProfileScreen(
         }
     }
 
-    if (showLoginDialog) {
-        LoginDialog(
-            currentProfile = profile,
-            onLoginSuccess = { updatedProfile ->
-                viewModel.updateUserProfile(updatedProfile)
-                showLoginDialog = false
-            },
-            onDismiss = { showLoginDialog = false }
-        )
-    }
-}
-
-@Composable
-fun LoginDialog(
-    currentProfile: UserProfile,
-    onLoginSuccess: (UserProfile) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var email by remember { mutableStateOf(currentProfile.email) }
-    var name by remember { mutableStateOf(currentProfile.name) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .testTag("login_dialog"),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Secure Account Sign In",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Sync deals and pattern alerts across your devices",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Full Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email Address") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    OutlinedButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            onLoginSuccess(
-                                currentProfile.copy(
-                                    name = name.ifBlank { "Alex Morgan" },
-                                    email = email.ifBlank { "alex.deals@example.com" },
-                                    isLoggedIn = true
-                                )
-                            )
-                        },
-                        modifier = Modifier.testTag("submit_login_btn")
-                    ) {
-                        Text("Sign In")
-                    }
-                }
-            }
-        }
-    }
 }
